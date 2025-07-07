@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import lombok.*;
 
+import java.util.List;
+
 @Service
 public class Upload {
     private UploadRepository uploadRepository;
@@ -22,5 +24,10 @@ public class Upload {
         model.setYear(year);
         model.setFilePath(file_path);
         return uploadRepository.save(model);
+    }
+
+    //for selecting all inside the itr records table
+    public List<UploadModel> uploadAll(){
+        return uploadRepository.streamAll();
     }
 }
