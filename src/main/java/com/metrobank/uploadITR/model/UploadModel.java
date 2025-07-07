@@ -36,4 +36,20 @@ public class UploadModel {
     public void setFilePath(String filePath) {
         this.filePath = filePath;
     }
+
+    public int getItr_id() {
+        return itr_id;
+    }
+
+    public int getUserId() {
+        return userId;
+    }
+
+    public int getYear() {
+        return year;
+    }
+
+    public String getFilePath() {
+        return filePath;
+    }
 }
