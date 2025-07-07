@@ -12,8 +12,9 @@ public interface UploadRepository extends JpaRepository<UploadModel, Long> {
     @Query(value = "SELECT * FROM ITR_Records", nativeQuery = true)
     List<UploadModel> streamAll();
 
-    @Modifying
+    //Insert is not allowed in native query
+    /*@Modifying
     @Transactional
     @Query(value = "INSERT INTO ITR_Records (user_id, year, file_path) VALUES (?1, ?2, ?3)", nativeQuery = true)
-    UploadModel uploadItrData(int user_id, int year, String file_path);
+    UploadModel uploadItrData(int user_id, int year, String file_path);*/
 }
