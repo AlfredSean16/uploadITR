@@ -1,11 +1,9 @@
 package com.metrobank.uploadITR.service;
 
-import com.metrobank.uploadITR.UploadItrApplication;
 import com.metrobank.uploadITR.model.UploadModel;
 import com.metrobank.uploadITR.repository.UploadRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import lombok.*;
 
 import java.util.List;
 
@@ -24,6 +22,11 @@ public class Upload {
         model.setYear(year);
         model.setFilePath(file_path);
         return uploadRepository.save(model);
+    }
+
+    //For removing an itr record
+    public void remove (int itr_id){
+        uploadRepository.deleteItrById(itr_id);
     }
 
     //for selecting all inside the itr records table

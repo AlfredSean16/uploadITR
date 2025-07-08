@@ -14,6 +14,7 @@ import lombok.Setter;
 public class UploadModel {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "itr_id")
     private int itr_id;
 
     @Column(name = "user_id")
