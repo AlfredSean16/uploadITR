@@ -21,7 +21,6 @@ public class Upload {
     //Upload Backend Logic
     public UploadModel upload (int user_id, int year, String file_path){
 
-        //No validation yet for unfilled user id and year
         if(uploadRepository.existByUserId(user_id) == 0){
             throw new UserIdValidationException("This user does not exist.");
         }
