@@ -8,6 +8,8 @@ import com.metrobank.uploadITR.repository.UploadRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Service
@@ -19,33 +21,38 @@ public class Upload {
     }
 
     //Upload Backend Logic
-    public UploadModel upload (int user_id, int year, String file_path){
+    public boolean upload (int user_id, int year, String file_path, String filename){
 
-        if(uploadRepository.existByUserId(user_id) == 0){
-            throw new UserIdValidationException("This user does not exist.");
+        try {
+            if(uploadRepository.existByUserId(user_id) == 0){
+                throw new UserIdValidationException("This user does not exist.");
+            }
+            UploadModel model = new UploadModel();
+            model.setUserId(user_id);
+            model.setYear(year);
+            model.setFilePath(file_path);
+            model.setFilename(filename);
+            uploadRepository.save(model);
         }
-        if(file_path.isEmpty()){
-            throw new FilePathValidationException("File path must not be empty.");
+        catch (Exception e){
+            return false;
         }
-        if(!file_path.contains(".pdf")){
-            throw new FilePathValidationException("This is not a .pdf file.");
-        }
-
-        UploadModel model = new UploadModel();
-        model.setUserId(user_id);
-        model.setYear(year);
-        model.setFilePath(file_path);
-        return uploadRepository.save(model);
+        return true;
     }
 
     //For removing an itr record
-    public void remove (int itr_id){
+    public boolean remove (int itr_id){
 
-        if(uploadRepository.existByItrId(itr_id) == 0){
-            throw new ItrIdValidationException("This ITR record does not exist.");
+        try {
+            if (uploadRepository.existByItrId(itr_id) == 0) {
+                throw new ItrIdValidationException("This ITR record does not exist.");
+            }
+            uploadRepository.deleteItrById(itr_id);
         }
-
-        uploadRepository.deleteItrById(itr_id);
+        catch (Exception e){
+            return false;
+        }
+        return true;
     }
 
     //for selecting all inside the itr records table

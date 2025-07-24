@@ -26,6 +26,9 @@ public class UploadModel {
     @Column(name = "file_path")
     private String filePath;
 
+    @Column(name = "filename")
+    private String filename;
+
     public void setUserId(int userId) {
         this.userId = userId;
     }
@@ -36,6 +39,16 @@ public class UploadModel {
 
     public void setFilePath(String filePath) {
         this.filePath = filePath;
+    }
+
+    public void setFilename(String filename){this.filename = filename; }
+
+    public String getFile(){
+        return filePath.concat(filename);
+    }
+
+    public String getFilename() {
+        return filename;
     }
 
     public int getItr_id() {

@@ -12,10 +12,10 @@ public interface UploadRepository extends JpaRepository<UploadModel, Long> {
     @Query(value = "SELECT * FROM ITR_Records", nativeQuery = true)
     List<UploadModel> streamAll();
 
-    @Query(value = "SELECT COUNT(*) FROM Users WHERE user_id = ?1", nativeQuery = true)
+    @Query(value = "SELECT COUNT(*) FROM Users WHERE user_id = :user_id", nativeQuery = true)
     int existByUserId(int user_id);
 
-    @Query(value = "SELECT COUNT(*) FROM ITR_Records WHERE itr_id = ?1", nativeQuery = true)
+    @Query(value = "SELECT COUNT(*) FROM ITR_Records WHERE itr_id = :user_id", nativeQuery = true)
     int existByItrId(int user_id);
     @Modifying
     @Transactional
