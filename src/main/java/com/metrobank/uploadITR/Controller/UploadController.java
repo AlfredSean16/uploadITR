@@ -186,7 +186,6 @@ public class UploadController {
         }
 
         try {
-            // ✅ Retrieve the record to get file path + filename
             UploadModel record = uploadRepository.findById((long) parsedItrID).orElse(null);
             if (record != null) {
                 Path fileToDelete = Paths.get(record.getFilePath(), record.getFilename());
@@ -198,7 +197,6 @@ public class UploadController {
                 }
             }
 
-            // ✅ Remove from database
             if (!upload.remove(parsedItrID)) {
                 return ResponseEntity.status(500)
                         .body(String.format("ITR number: %s is not removed from database.", parsedItrID));
