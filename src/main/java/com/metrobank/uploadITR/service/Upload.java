@@ -24,9 +24,6 @@ public class Upload {
     public boolean upload (int user_id, int year, String file_path, String filename){
 
         try {
-            if(uploadRepository.existByUserId(user_id) == 0){
-                throw new UserIdValidationException("This user does not exist.");
-            }
             UploadModel model = new UploadModel();
             model.setUserId(user_id);
             model.setYear(year);
@@ -42,10 +39,8 @@ public class Upload {
 
     //For updating an itr record
     public boolean update(int itr_id, int year, String file_path, String filename) {
+
         try {
-            if (uploadRepository.existByItrId(itr_id) == 0) {
-                throw new ItrIdValidationException("ITR record does not exist.");
-            }
             uploadRepository.updateItrById(itr_id, year, file_path, filename);
         } catch (Exception e) {
             return false;

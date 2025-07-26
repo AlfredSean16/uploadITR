@@ -41,56 +41,36 @@ public class UploadController {
 
     @PostMapping("/upload")
     public ResponseEntity<?> uploadSample(
-            @RequestParam("user_id") String user_id,
-            @RequestParam("year") String year,
+            @RequestParam(value = "user_id", required = false) String user_id,
+            @RequestParam(value = "year", required = false) String year,
             @RequestParam("file_path") String file_path,
             @RequestParam("filename") String filename,
             @RequestParam("uploadFile") MultipartFile uploadFile) {
-
-            if (user_id == null || year == null || file_path.isEmpty() || filename.isEmpty() || uploadFile.isEmpty()) {
-                throw new UserIdValidationException("Please fill up all the fields.");
-            }
-            try{
-                LocalDateTime dateTime = LocalDateTime.now();
-                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("DDMMYYYY_HHMMSS");
-
-                filename = String.format("%s_%s.pdf", filename, formatter.format(dateTime));
-                Path directory = Paths.get(file_path);
-
-                if(!Files.exists(directory)){
-                    Files.createDirectory(directory);
-                }
-                if(!uploadFile.getContentType().equals("application/pdf")){
-                    return  ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid file type. " + uploadFile.getContentType());
-                }
-
-                Path targetFile = directory.resolve(filename);
-                if(upload.upload(Integer.parseInt(user_id), Integer.parseInt(year), file_path, filename)){
-                    Files.copy(uploadFile.getInputStream(), targetFile, StandardCopyOption.REPLACE_EXISTING);
-                    return ResponseEntity.status(HttpStatus.CREATED).body(String.format("File %s saved successfully.", filename));
-                }
-                else {
-                    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Failed.");
-                }
-            }
-            catch (IOException e){
-                return ResponseEntity.status(500).body("File is not copied." + e.getMessage());
-            }
-    }
-
-    @PostMapping("/update")
-    public ResponseEntity<?> updateSample(
-            @RequestParam(value = "itr_id", required = false) Integer itr_id,
-            @RequestParam(value = "year", required = false) Integer year,
-            @RequestParam("file_path") String file_path,
-            @RequestParam("filename") String filename,
-            @RequestParam("uploadFile") MultipartFile uploadFile) {
-
-        if (itr_id == null || year == null || file_path.isEmpty() || filename.isEmpty() || uploadFile.isEmpty()) {
-            throw new ItrIdValidationException("All fields must be filled.");
-        }
 
         try {
+            if (user_id == null || user_id.trim().isEmpty() ||
+                    year == null || year.trim().isEmpty() ||
+                    file_path == null || file_path.trim().isEmpty() ||
+                    filename == null || filename.trim().isEmpty() ||
+                    uploadFile == null || uploadFile.isEmpty()) {
+
+                throw new ItrIdValidationException("All fields must be filled.");
+            }
+
+            int parsedUserId;
+            int parsedYear;
+
+            try {
+                parsedUserId = Integer.parseInt(user_id);
+                parsedYear = Integer.parseInt(year);
+            } catch (NumberFormatException e) {
+                throw new UserIdValidationException("User ID and Year must be valid numbers.");
+            }
+
+            if (uploadRepository.existByUserId(parsedUserId) == 0) {
+                throw new UserIdValidationException("This user does not exist.");
+            }
+
             if (!uploadFile.getContentType().equals("application/pdf")) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body("Invalid file type. Only PDF files are allowed.");
@@ -101,30 +81,90 @@ public class UploadController {
                 Files.createDirectories(directory);
             }
 
-            UploadModel oldRecord = uploadRepository.findById((long) itr_id).orElse(null);
-            if (oldRecord != null) {
-                Path oldFilePath = Paths.get(oldRecord.getFilePath(), oldRecord.getFilename());
-                try {
-                    Files.deleteIfExists(oldFilePath);
-                    System.out.println("Deleted old file: " + oldFilePath.toAbsolutePath());
-                } catch (IOException ex) {
-                    System.out.println("Failed to delete old file: " + ex.getMessage());
-                }
+            LocalDateTime dateTime = LocalDateTime.now();
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss");
+            String timestampedFilename = String.format("%s_%s.pdf", filename, formatter.format(dateTime));
+
+            Path targetFile = directory.resolve(timestampedFilename);
+            Files.copy(uploadFile.getInputStream(), targetFile, StandardCopyOption.REPLACE_EXISTING);
+
+            if (upload.upload(parsedUserId, parsedYear, file_path, timestampedFilename)) {
+                return ResponseEntity.status(HttpStatus.CREATED)
+                        .body(String.format("File %s saved successfully.", timestampedFilename));
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Failed to save record.");
+            }
+
+        } catch (UserIdValidationException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+        } catch (IOException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("File save failed: " + e.getMessage());
+        }
+    }
+
+    @PostMapping(value = "/update")
+    public ResponseEntity<?> updateSample(
+            @RequestParam(value = "itr_id", required = false) String itr_id,
+            @RequestParam(value = "year", required = false) String year,
+            @RequestParam("file_path") String file_path,
+            @RequestParam("filename") String filename,
+            @RequestParam("uploadFile") MultipartFile uploadFile) {
+
+        if (itr_id == null || itr_id.trim().isEmpty() ||
+                year == null || year.trim().isEmpty() ||
+                file_path == null || file_path.trim().isEmpty() ||
+                filename == null || filename.trim().isEmpty() ||
+                uploadFile == null || uploadFile.isEmpty()) {
+
+            throw new ItrIdValidationException("All fields must be filled.");
+        }
+
+        int parsedItrId, parsedYear;
+        try {
+            parsedItrId = Integer.parseInt(itr_id.trim());
+            parsedYear = Integer.parseInt(year.trim());
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest().body("ITR ID and Year must be valid numbers.");
+        }
+
+        try {
+            UploadModel oldRecord = uploadRepository.findById((long) parsedItrId).orElse(null);
+            if (oldRecord == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body("ITR record with ID " + parsedItrId + " does not exist.");
+            }
+
+            if (!"application/pdf".equals(uploadFile.getContentType())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("Invalid file type. Only PDF files are allowed.");
+            }
+
+            Path directory = Paths.get(file_path);
+            if (!Files.exists(directory)) {
+                Files.createDirectories(directory);
+            }
+
+            Path oldFilePath = Paths.get(oldRecord.getFilePath(), oldRecord.getFilename());
+            try {
+                Files.deleteIfExists(oldFilePath);
+                System.out.println("Deleted old file: " + oldFilePath.toAbsolutePath());
+            } catch (IOException ex) {
+                System.out.println("Failed to delete old file: " + ex.getMessage());
             }
 
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss"));
             String updatedFilename = String.format("%s_%s.pdf", filename, timestamp);
-
             Path targetFile = directory.resolve(updatedFilename);
             Files.copy(uploadFile.getInputStream(), targetFile, StandardCopyOption.REPLACE_EXISTING);
 
-            boolean updated = upload.update(itr_id, year, file_path, updatedFilename);
+            boolean updated = upload.update(parsedItrId, parsedYear, file_path, updatedFilename);
             if (!updated) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body("Failed to update ITR record with ID: " + itr_id);
+                        .body("Failed to update ITR record with ID: " + parsedItrId);
             }
 
-            return ResponseEntity.ok("ITR record " + itr_id + " successfully updated.");
+            return ResponseEntity.ok("ITR record " + parsedItrId + " successfully updated.");
         } catch (IOException e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("File saving failed: " + e.getMessage());
@@ -133,15 +173,44 @@ public class UploadController {
 
 
     @PostMapping("/remove")
-    public ResponseEntity<?> removeSample(@RequestParam(required = false) Integer itr_id) {
-
-        if (itr_id == null) {
+    public ResponseEntity<?> removeSample(@RequestParam(value = "itr_id", required = false) String itr_id) {
+        if (itr_id == null || itr_id.trim().isEmpty()) {
             throw new ItrIdValidationException("Please fill up the field.");
         }
 
-        if(!upload.remove(itr_id)) {
-            return ResponseEntity.status(500).body(String.format("Itr number: %s is not removed.", itr_id));
+        int parsedItrID;
+        try {
+            parsedItrID = Integer.parseInt(itr_id.trim());
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest().body("ITR ID must be a valid number.");
         }
-        return ResponseEntity.status(200).body(String.format("Itr number: %s is removed.", itr_id));
+
+        try {
+            // ✅ Retrieve the record to get file path + filename
+            UploadModel record = uploadRepository.findById((long) parsedItrID).orElse(null);
+            if (record != null) {
+                Path fileToDelete = Paths.get(record.getFilePath(), record.getFilename());
+                try {
+                    Files.deleteIfExists(fileToDelete);
+                    System.out.println("Deleted file from directory: " + fileToDelete.toAbsolutePath());
+                } catch (IOException ex) {
+                    System.out.println("Failed to delete file: " + ex.getMessage());
+                }
+            }
+
+            // ✅ Remove from database
+            if (!upload.remove(parsedItrID)) {
+                return ResponseEntity.status(500)
+                        .body(String.format("ITR number: %s is not removed from database.", parsedItrID));
+            }
+
+            return ResponseEntity.ok(String.format("ITR number: %s is removed, including its file.", parsedItrID));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(500)
+                    .body("Unexpected error while removing ITR record: " + e.getMessage());
+        }
     }
 }
+
+
