@@ -4,6 +4,7 @@ import com.metrobank.uploadITR.DTO.UploadDTO;
 import com.metrobank.uploadITR.exception.ItrIdValidationException;
 import com.metrobank.uploadITR.exception.UserIdValidationException;
 import com.metrobank.uploadITR.model.UploadModel;
+import com.metrobank.uploadITR.repository.UploadRepository;
 import com.metrobank.uploadITR.service.Upload;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -24,6 +25,9 @@ import java.util.List;
 @RequestMapping(value = "/HRHome")
 public class UploadController {
     private final Upload upload;
+
+    @Autowired
+    private UploadRepository uploadRepository;
 
     @Autowired
     public UploadController(Upload upload){
@@ -72,6 +76,59 @@ public class UploadController {
             catch (IOException e){
                 return ResponseEntity.status(500).body("File is not copied." + e.getMessage());
             }
+    }
+
+    @PostMapping("/update")
+    public ResponseEntity<?> updateSample(
+            @RequestParam(value = "itr_id", required = false) Integer itr_id,
+            @RequestParam(value = "year", required = false) Integer year,
+            @RequestParam("file_path") String file_path,
+            @RequestParam("filename") String filename,
+            @RequestParam("uploadFile") MultipartFile uploadFile) {
+
+        if (itr_id == null || year == null || file_path.isEmpty() || filename.isEmpty() || uploadFile.isEmpty()) {
+            throw new ItrIdValidationException("All fields must be filled.");
+        }
+
+        try {
+            if (!uploadFile.getContentType().equals("application/pdf")) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("Invalid file type. Only PDF files are allowed.");
+            }
+
+            Path directory = Paths.get(file_path);
+            if (!Files.exists(directory)) {
+                Files.createDirectories(directory);
+            }
+
+            UploadModel oldRecord = uploadRepository.findById((long) itr_id).orElse(null);
+            if (oldRecord != null) {
+                Path oldFilePath = Paths.get(oldRecord.getFilePath(), oldRecord.getFilename());
+                try {
+                    Files.deleteIfExists(oldFilePath);
+                    System.out.println("Deleted old file: " + oldFilePath.toAbsolutePath());
+                } catch (IOException ex) {
+                    System.out.println("Failed to delete old file: " + ex.getMessage());
+                }
+            }
+
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss"));
+            String updatedFilename = String.format("%s_%s.pdf", filename, timestamp);
+
+            Path targetFile = directory.resolve(updatedFilename);
+            Files.copy(uploadFile.getInputStream(), targetFile, StandardCopyOption.REPLACE_EXISTING);
+
+            boolean updated = upload.update(itr_id, year, file_path, updatedFilename);
+            if (!updated) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("Failed to update ITR record with ID: " + itr_id);
+            }
+
+            return ResponseEntity.ok("ITR record " + itr_id + " successfully updated.");
+        } catch (IOException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("File saving failed: " + e.getMessage());
+        }
     }
 
 

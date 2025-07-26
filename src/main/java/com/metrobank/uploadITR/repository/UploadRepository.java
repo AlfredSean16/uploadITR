@@ -19,7 +19,11 @@ public interface UploadRepository extends JpaRepository<UploadModel, Long> {
     int existByItrId(int user_id);
     @Modifying
     @Transactional
-    @Query(value = "DELETE FROM ITR_Records WHERE itr_id = ?1", nativeQuery = true)
+    @Query(value = "DELETE FROM ITR_Records WHERE itr_id = :itr_id", nativeQuery = true)
     void deleteItrById(int itr_id);
+    @Modifying
+    @Transactional
+    @Query(value = "UPDATE ITR_Records SET year = :year, file_path = :file_path, filename = :filename WHERE itr_id = :itr_id", nativeQuery = true)
+    void updateItrById(int itr_id, int year, String file_path, String filename);
 
 }

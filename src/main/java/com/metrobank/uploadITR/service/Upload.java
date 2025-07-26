@@ -40,6 +40,19 @@ public class Upload {
         return true;
     }
 
+    //For updating an itr record
+    public boolean update(int itr_id, int year, String file_path, String filename) {
+        try {
+            if (uploadRepository.existByItrId(itr_id) == 0) {
+                throw new ItrIdValidationException("ITR record does not exist.");
+            }
+            uploadRepository.updateItrById(itr_id, year, file_path, filename);
+        } catch (Exception e) {
+            return false;
+        }
+        return true;
+    }
+
     //For removing an itr record
     public boolean remove (int itr_id){
 
