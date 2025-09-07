@@ -29,6 +29,9 @@ public class UploadModel {
     @Column(name = "filename")
     private String filename;
 
+    @Column(name = "pdf_password")
+    private String pdf_password;
+
     public void setUserId(int userId) {
         this.userId = userId;
     }
@@ -42,6 +45,8 @@ public class UploadModel {
     }
 
     public void setFilename(String filename){this.filename = filename; }
+
+    public void setPdfPassword(String pdf_password){ this.pdf_password = pdf_password; }
 
     public String getFile(){
         return filePath.concat(filename);
@@ -66,4 +71,6 @@ public class UploadModel {
     public String getFilePath() {
         return filePath;
     }
+
+    public String getPdfPassword(){ return pdf_password; }
 }

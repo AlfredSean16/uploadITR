@@ -6,6 +6,7 @@ import com.metrobank.uploadITR.exception.UserIdValidationException;
 import com.metrobank.uploadITR.model.UploadModel;
 import com.metrobank.uploadITR.repository.UploadRepository;
 import com.metrobank.uploadITR.service.Upload;
+import com.metrobank.uploadITR.PdfPassword.PdfPasswordUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -71,6 +72,11 @@ public class UploadController {
                 throw new UserIdValidationException("This user does not exist.");
             }
 
+            if (uploadRepository.existsByUserIdAndYear(parsedUserId, parsedYear) > 0) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("This user already had an ITR for year " + parsedYear + ". Please use update.");
+            }
+
             if (!uploadFile.getContentType().equals("application/pdf")) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body("Invalid file type. Only PDF files are allowed.");
@@ -88,9 +94,13 @@ public class UploadController {
             Path targetFile = directory.resolve(timestampedFilename);
             Files.copy(uploadFile.getInputStream(), targetFile, StandardCopyOption.REPLACE_EXISTING);
 
-            if (upload.upload(parsedUserId, parsedYear, file_path, timestampedFilename)) {
+            String pdfPassword = PdfPasswordUtil.generatePassword();
+
+            PdfPasswordUtil.encryptPdf(targetFile.toFile(), "OwnerSecretKey123", pdfPassword);
+
+            if (upload.upload(parsedUserId, parsedYear, file_path, timestampedFilename, pdfPassword)) {
                 return ResponseEntity.status(HttpStatus.CREATED)
-                        .body(String.format("File %s saved successfully.", timestampedFilename));
+                        .body(String.format("File %s saved successfully. PDF password: %s", timestampedFilename, pdfPassword));
             } else {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Failed to save record.");
             }
@@ -132,7 +142,14 @@ public class UploadController {
             UploadModel oldRecord = uploadRepository.findById((long) parsedItrId).orElse(null);
             if (oldRecord == null) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body("ITR record with ID " + parsedItrId + " does not exist.");
+                        .body("This user does not exist.");
+            }
+
+            int duplicates = uploadRepository.countByUserIdAndYearExcludingItr(
+                    oldRecord.getUserId(), parsedYear, parsedItrId);
+            if (duplicates > 0) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("This user already has an ITR for year " + parsedYear + ". Update rejected.");
             }
 
             if (!"application/pdf".equals(uploadFile.getContentType())) {
@@ -157,6 +174,9 @@ public class UploadController {
             String updatedFilename = String.format("%s_%s.pdf", filename, timestamp);
             Path targetFile = directory.resolve(updatedFilename);
             Files.copy(uploadFile.getInputStream(), targetFile, StandardCopyOption.REPLACE_EXISTING);
+
+            String pdfPassword = oldRecord.getPdfPassword();
+            PdfPasswordUtil.encryptPdf(targetFile.toFile(), "OwnerSecret123", pdfPassword);
 
             boolean updated = upload.update(parsedItrId, parsedYear, file_path, updatedFilename);
             if (!updated) {

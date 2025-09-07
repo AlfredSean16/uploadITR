@@ -21,14 +21,18 @@ public class Upload {
     }
 
     //Upload Backend Logic
-    public boolean upload (int user_id, int year, String file_path, String filename){
+    public boolean upload (int user_id, int year, String file_path, String filename, String pdf_password){
 
         try {
+            if(uploadRepository.existsByUserIdAndYear(user_id, year) > 0){
+                return false;
+            }
             UploadModel model = new UploadModel();
             model.setUserId(user_id);
             model.setYear(year);
             model.setFilePath(file_path);
             model.setFilename(filename);
+            model.setPdfPassword(pdf_password);
             uploadRepository.save(model);
         }
         catch (Exception e){
@@ -39,8 +43,19 @@ public class Upload {
 
     //For updating an itr record
     public boolean update(int itr_id, int year, String file_path, String filename) {
-
         try {
+            UploadModel record = uploadRepository.findById((long) itr_id).orElse(null);
+            if (record == null) {
+                return false;
+            }
+
+            int userId = record.getUserId();
+
+            int count = uploadRepository.countByUserIdAndYearExcludingItr(userId, year, itr_id);
+            if (count > 0) {
+                return false;
+            }
+
             uploadRepository.updateItrById(itr_id, year, file_path, filename);
         } catch (Exception e) {
             return false;
