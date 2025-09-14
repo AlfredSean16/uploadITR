@@ -42,7 +42,7 @@ public class Upload {
     }
 
     //For updating an itr record
-    public boolean update(int itr_id, int year, String file_path, String filename) {
+    public boolean update(int itr_id, int year, String file_path, String filename, String pdf_password) {
         try {
             UploadModel record = uploadRepository.findById((long) itr_id).orElse(null);
             if (record == null) {
@@ -56,7 +56,7 @@ public class Upload {
                 return false;
             }
 
-            uploadRepository.updateItrById(itr_id, year, file_path, filename);
+            uploadRepository.updateItrById(itr_id, year, file_path, filename, pdf_password);
         } catch (Exception e) {
             return false;
         }

@@ -26,9 +26,10 @@ public class PdfPasswordUtil {
         try (PDDocument document = PDDocument.load(file)) {
             AccessPermission ap = new AccessPermission();
 
-            ap.setCanPrint(false);
+            ap.setCanPrint(true);
             ap.setCanModify(false);
             ap.setCanExtractContent(false);
+            ap.setCanAssembleDocument(false);
 
             StandardProtectionPolicy spp = new StandardProtectionPolicy(ownerPassword, userPassword, ap);
             spp.setEncryptionKeyLength(128);
@@ -36,6 +37,28 @@ public class PdfPasswordUtil {
 
             document.protect(spp);
             document.save(file);
+        }
+    }
+    // Re-encrypt an already password-protected PDF
+    public static void reEncryptPdf(File inputFile,
+                                    String oldUserPassword,
+                                    File outputFile,
+                                    String ownerPassword,
+                                    String newUserPassword) throws IOException {
+        try (PDDocument document = PDDocument.load(inputFile, oldUserPassword)) {
+            AccessPermission ap = new AccessPermission();
+
+            ap.setCanPrint(true);
+            ap.setCanModify(false);
+            ap.setCanExtractContent(false);
+            ap.setCanAssembleDocument(false);
+
+            StandardProtectionPolicy spp = new StandardProtectionPolicy(ownerPassword, newUserPassword, ap);
+            spp.setEncryptionKeyLength(128);
+            spp.setPermissions(ap);
+
+            document.protect(spp);
+            document.save(outputFile);
         }
     }
 }

@@ -21,7 +21,7 @@ public class UploadModel {
     private int userId;
 
     @Column(name = "year")
-    private int year;
+    private Integer year;
 
     @Column(name = "file_path")
     private String filePath;
@@ -36,7 +36,7 @@ public class UploadModel {
         this.userId = userId;
     }
 
-    public void setYear(int year) {
+    public void setYear(Integer year) {
         this.year = year;
     }
 
@@ -64,7 +64,7 @@ public class UploadModel {
         return userId;
     }
 
-    public int getYear() {
+    public Integer getYear() {
         return year;
     }
 

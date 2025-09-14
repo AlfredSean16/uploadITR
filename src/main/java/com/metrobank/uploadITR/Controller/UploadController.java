@@ -1,6 +1,7 @@
 package com.metrobank.uploadITR.Controller;
 
 import com.metrobank.uploadITR.DTO.UploadDTO;
+import com.metrobank.uploadITR.MailService.MailService;
 import com.metrobank.uploadITR.exception.ItrIdValidationException;
 import com.metrobank.uploadITR.exception.UserIdValidationException;
 import com.metrobank.uploadITR.model.UploadModel;
@@ -31,6 +32,9 @@ public class UploadController {
     private UploadRepository uploadRepository;
 
     @Autowired
+    private MailService emailService;
+
+    @Autowired
     public UploadController(Upload upload){
         this.upload = upload;
     }
@@ -44,14 +48,12 @@ public class UploadController {
     public ResponseEntity<?> uploadSample(
             @RequestParam(value = "user_id", required = false) String user_id,
             @RequestParam(value = "year", required = false) String year,
-            @RequestParam("file_path") String file_path,
             @RequestParam("filename") String filename,
             @RequestParam("uploadFile") MultipartFile uploadFile) {
 
         try {
             if (user_id == null || user_id.trim().isEmpty() ||
                     year == null || year.trim().isEmpty() ||
-                    file_path == null || file_path.trim().isEmpty() ||
                     filename == null || filename.trim().isEmpty() ||
                     uploadFile == null || uploadFile.isEmpty()) {
 
@@ -82,6 +84,7 @@ public class UploadController {
                         .body("Invalid file type. Only PDF files are allowed.");
             }
 
+            String file_path = "D:\\itrRecords";
             Path directory = Paths.get(file_path);
             if (!Files.exists(directory)) {
                 Files.createDirectories(directory);
@@ -99,8 +102,16 @@ public class UploadController {
             PdfPasswordUtil.encryptPdf(targetFile.toFile(), "OwnerSecretKey123", pdfPassword);
 
             if (upload.upload(parsedUserId, parsedYear, file_path, timestampedFilename, pdfPassword)) {
+
+                String userEmail = uploadRepository.findEmailByUserId(parsedUserId);
+
+                if (userEmail != null && !userEmail.isEmpty()) {
+                    emailService.sendPasswordEmail(userEmail, String.valueOf(parsedYear), timestampedFilename, pdfPassword);
+                }
+
                 return ResponseEntity.status(HttpStatus.CREATED)
-                        .body(String.format("File %s saved successfully. PDF password: %s", timestampedFilename, pdfPassword));
+                        .body(String.format("File %s saved successfully. PDF password has been sent to %s",
+                                timestampedFilename, userEmail));
             } else {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Failed to save record.");
             }
@@ -117,15 +128,11 @@ public class UploadController {
     public ResponseEntity<?> updateSample(
             @RequestParam(value = "itr_id", required = false) String itr_id,
             @RequestParam(value = "year", required = false) String year,
-            @RequestParam("file_path") String file_path,
-            @RequestParam("filename") String filename,
-            @RequestParam("uploadFile") MultipartFile uploadFile) {
+            @RequestParam("filename") String filename) {
 
         if (itr_id == null || itr_id.trim().isEmpty() ||
                 year == null || year.trim().isEmpty() ||
-                file_path == null || file_path.trim().isEmpty() ||
-                filename == null || filename.trim().isEmpty() ||
-                uploadFile == null || uploadFile.isEmpty()) {
+                filename == null || filename.trim().isEmpty()) {
 
             throw new ItrIdValidationException("All fields must be filled.");
         }
@@ -142,7 +149,7 @@ public class UploadController {
             UploadModel oldRecord = uploadRepository.findById((long) parsedItrId).orElse(null);
             if (oldRecord == null) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body("This user does not exist.");
+                        .body("This ITR record does not exist.");
             }
 
             int duplicates = uploadRepository.countByUserIdAndYearExcludingItr(
@@ -152,42 +159,54 @@ public class UploadController {
                         .body("This user already has an ITR for year " + parsedYear + ". Update rejected.");
             }
 
-            if (!"application/pdf".equals(uploadFile.getContentType())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body("Invalid file type. Only PDF files are allowed.");
-            }
+            String file_path = "D:\\itrRecords";
 
-            Path directory = Paths.get(file_path);
-            if (!Files.exists(directory)) {
-                Files.createDirectories(directory);
-            }
-
-            Path oldFilePath = Paths.get(oldRecord.getFilePath(), oldRecord.getFilename());
-            try {
-                Files.deleteIfExists(oldFilePath);
-                System.out.println("Deleted old file: " + oldFilePath.toAbsolutePath());
-            } catch (IOException ex) {
-                System.out.println("Failed to delete old file: " + ex.getMessage());
+            Path existingFile = Paths.get(oldRecord.getFilePath(), oldRecord.getFilename());
+            if (!Files.exists(existingFile)) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body("The original file is missing from the directory.");
             }
 
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss"));
             String updatedFilename = String.format("%s_%s.pdf", filename, timestamp);
-            Path targetFile = directory.resolve(updatedFilename);
-            Files.copy(uploadFile.getInputStream(), targetFile, StandardCopyOption.REPLACE_EXISTING);
+            Path newFilePath = Paths.get(file_path, updatedFilename);
+
+            Files.move(existingFile, newFilePath, StandardCopyOption.REPLACE_EXISTING);
 
             String pdfPassword = oldRecord.getPdfPassword();
-            PdfPasswordUtil.encryptPdf(targetFile.toFile(), "OwnerSecret123", pdfPassword);
+            boolean yearChanged = parsedYear != oldRecord.getYear();
+            if (yearChanged) {
+                pdfPassword = PdfPasswordUtil.generatePassword();
 
-            boolean updated = upload.update(parsedItrId, parsedYear, file_path, updatedFilename);
+                PdfPasswordUtil.reEncryptPdf(
+                        newFilePath.toFile(),
+                        oldRecord.getPdfPassword(),
+                        newFilePath.toFile(),
+                        "OwnerSecret123",
+                        pdfPassword
+                );
+            }
+
+            boolean updated = upload.update(parsedItrId, parsedYear,
+                    file_path, updatedFilename, pdfPassword);
+
             if (!updated) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body("Failed to update ITR record with ID: " + parsedItrId);
             }
 
+            if (yearChanged) {
+                String userEmail = uploadRepository.findEmailByUserId(oldRecord.getUserId());
+                if (userEmail != null && !userEmail.isEmpty()) {
+                    emailService.sendPasswordEmail(userEmail, String.valueOf(parsedYear), updatedFilename, pdfPassword);
+                }
+            }
+
             return ResponseEntity.ok("ITR record " + parsedItrId + " successfully updated.");
+
         } catch (IOException e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("File saving failed: " + e.getMessage());
+                    .body("File update failed: " + e.getMessage());
         }
     }
 
@@ -207,25 +226,31 @@ public class UploadController {
 
         try {
             UploadModel record = uploadRepository.findById((long) parsedItrID).orElse(null);
-            if (record != null) {
-                Path fileToDelete = Paths.get(record.getFilePath(), record.getFilename());
-                try {
-                    Files.deleteIfExists(fileToDelete);
-                    System.out.println("Deleted file from directory: " + fileToDelete.toAbsolutePath());
-                } catch (IOException ex) {
-                    System.out.println("Failed to delete file: " + ex.getMessage());
-                }
+            if (record == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body("This ITR record does not exist.");
             }
 
-            if (!upload.remove(parsedItrID)) {
-                return ResponseEntity.status(500)
-                        .body(String.format("ITR number: %s is not removed from database.", parsedItrID));
+            if (record.getYear() == null &&
+                    record.getFilePath() == null &&
+                    record.getFilename() == null &&
+                    record.getPdfPassword() == null) {
+
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(String.format("ITR number: %s is already removed.", parsedItrID));
             }
 
-            return ResponseEntity.ok(String.format("ITR number: %s is removed, including its file.", parsedItrID));
+            record.setYear(null);
+            record.setFilePath(null);
+            record.setFilename(null);
+            record.setPdfPassword(null);
+
+            uploadRepository.save(record);
+
+            return ResponseEntity.ok(String.format("ITR number: %s is successfully removed", parsedItrID));
 
         } catch (Exception e) {
-            return ResponseEntity.status(500)
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Unexpected error while removing ITR record: " + e.getMessage());
         }
     }
