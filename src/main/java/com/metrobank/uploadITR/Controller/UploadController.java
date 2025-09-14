@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
@@ -90,7 +91,7 @@ public class UploadController {
                 Files.createDirectories(directory);
             }
 
-            LocalDateTime dateTime = LocalDateTime.now();
+            LocalDateTime dateTime = LocalDateTime.now(ZoneId.of("UTC"));
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss");
             String timestampedFilename = String.format("%s_%s.pdf", filename, formatter.format(dateTime));
 
@@ -167,7 +168,7 @@ public class UploadController {
                         .body("The original file is missing from the directory.");
             }
 
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss"));
+            String timestamp = LocalDateTime.now(ZoneId.of("UTC")).format(DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss"));
             String updatedFilename = String.format("%s_%s.pdf", filename, timestamp);
             Path newFilePath = Paths.get(file_path, updatedFilename);
 
