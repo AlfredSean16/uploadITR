@@ -2,6 +2,7 @@ package com.metrobank.uploadITR.Controller;
 
 import com.metrobank.uploadITR.DTO.UploadDTO;
 import com.metrobank.uploadITR.MailService.MailService;
+import com.metrobank.uploadITR.blobs.BlobService;
 import com.metrobank.uploadITR.exception.ItrIdValidationException;
 import com.metrobank.uploadITR.exception.UserIdValidationException;
 import com.metrobank.uploadITR.model.UploadModel;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -35,14 +37,18 @@ public class UploadController {
     @Autowired
     private MailService emailService;
 
+    private BlobService blobService;
+
     @Autowired
-    public UploadController(Upload upload){
+    public UploadController(Upload upload, BlobService blobService){
         this.upload = upload;
+        this.blobService = blobService;
     }
     @PostMapping("/indexHR")
     public String index() {
         return "indexHR.html";
     }
+
 
 
     @PostMapping("/upload")
@@ -57,19 +63,11 @@ public class UploadController {
                     year == null || year.trim().isEmpty() ||
                     filename == null || filename.trim().isEmpty() ||
                     uploadFile == null || uploadFile.isEmpty()) {
-
                 throw new ItrIdValidationException("All fields must be filled.");
             }
 
-            int parsedUserId;
-            int parsedYear;
-
-            try {
-                parsedUserId = Integer.parseInt(user_id);
-                parsedYear = Integer.parseInt(year);
-            } catch (NumberFormatException e) {
-                throw new UserIdValidationException("User ID and Year must be valid numbers.");
-            }
+            int parsedUserId = Integer.parseInt(user_id);
+            int parsedYear = Integer.parseInt(year);
 
             if (uploadRepository.existByUserId(parsedUserId) == 0) {
                 throw new UserIdValidationException("This user does not exist.");
@@ -85,43 +83,39 @@ public class UploadController {
                         .body("Invalid file type. Only PDF files are allowed.");
             }
 
-            String file_path = "D:\\itrRecords";
-            Path directory = Paths.get(file_path);
-            if (!Files.exists(directory)) {
-                Files.createDirectories(directory);
-            }
-
             LocalDateTime dateTime = LocalDateTime.now(ZoneId.of("UTC"));
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss");
-            String timestampedFilename = String.format("%s_%s.pdf", filename, formatter.format(dateTime));
+            String timestampedFilename = String.format("%s_%s.pdf", filename,
+                    dateTime.format(DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss")));
 
-            Path targetFile = directory.resolve(timestampedFilename);
-            Files.copy(uploadFile.getInputStream(), targetFile, StandardCopyOption.REPLACE_EXISTING);
+            // Encrypt the PDF before uploading
+            Path tempFile = Files.createTempFile("itr_", ".pdf");
+            uploadFile.transferTo(tempFile.toFile());
 
             String pdfPassword = PdfPasswordUtil.generatePassword();
+            PdfPasswordUtil.encryptPdf(tempFile.toFile(), "OwnerSecretKey123", pdfPassword);
 
-            PdfPasswordUtil.encryptPdf(targetFile.toFile(), "OwnerSecretKey123", pdfPassword);
+            // Upload to Azure Blob
+            try (InputStream inputStream = Files.newInputStream(tempFile)) {
+                blobService.uploadFile(timestampedFilename, inputStream, tempFile.toFile().length());
+            }
+            Files.deleteIfExists(tempFile); // clean up temp file
 
-            if (upload.upload(parsedUserId, parsedYear, file_path, timestampedFilename, pdfPassword)) {
-
+            if (upload.upload(parsedUserId, parsedYear, "AzureBlob", timestampedFilename, pdfPassword)) {
                 String userEmail = uploadRepository.findEmailByUserId(parsedUserId);
-
                 if (userEmail != null && !userEmail.isEmpty()) {
                     emailService.sendPasswordEmail(userEmail, String.valueOf(parsedYear), timestampedFilename, pdfPassword);
                 }
-
                 return ResponseEntity.status(HttpStatus.CREATED)
-                        .body(String.format("File %s saved successfully. PDF password has been sent to %s",
-                                timestampedFilename, userEmail));
+                        .body(String.format("File %s uploaded successfully. PDF password sent to %s", timestampedFilename, userEmail));
             } else {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Failed to save record.");
             }
 
-        } catch (UserIdValidationException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest().body("User ID and Year must be valid numbers.");
         } catch (IOException e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("File save failed: " + e.getMessage());
+                    .body("File processing failed: " + e.getMessage());
         }
     }
 
@@ -134,7 +128,6 @@ public class UploadController {
         if (itr_id == null || itr_id.trim().isEmpty() ||
                 year == null || year.trim().isEmpty() ||
                 filename == null || filename.trim().isEmpty()) {
-
             throw new ItrIdValidationException("All fields must be filled.");
         }
 
@@ -160,37 +153,36 @@ public class UploadController {
                         .body("This user already has an ITR for year " + parsedYear + ". Update rejected.");
             }
 
-            String file_path = "D:\\itrRecords";
+            boolean yearChanged = parsedYear != oldRecord.getYear();
 
-            Path existingFile = Paths.get(oldRecord.getFilePath(), oldRecord.getFilename());
-            if (!Files.exists(existingFile)) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body("The original file is missing from the directory.");
-            }
-
-            String timestamp = LocalDateTime.now(ZoneId.of("UTC")).format(DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss"));
-            String updatedFilename = String.format("%s_%s.pdf", filename, timestamp);
-            Path newFilePath = Paths.get(file_path, updatedFilename);
-
-            Files.move(existingFile, newFilePath, StandardCopyOption.REPLACE_EXISTING);
+            String updatedFilename = String.format("%s_%s.pdf", filename,
+                    LocalDateTime.now(ZoneId.of("UTC"))
+                            .format(DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss")));
 
             String pdfPassword = oldRecord.getPdfPassword();
-            boolean yearChanged = parsedYear != oldRecord.getYear();
-            if (yearChanged) {
-                pdfPassword = PdfPasswordUtil.generatePassword();
 
-                PdfPasswordUtil.reEncryptPdf(
-                        newFilePath.toFile(),
-                        oldRecord.getPdfPassword(),
-                        newFilePath.toFile(),
-                        "OwnerSecret123",
-                        pdfPassword
-                );
+            Path tempFile = Files.createTempFile("itr_update_", ".pdf");
+            try (InputStream oldBlobStream = blobService.downloadFile(oldRecord.getFilename())) {
+                Files.copy(oldBlobStream, tempFile, StandardCopyOption.REPLACE_EXISTING);
             }
 
-            boolean updated = upload.update(parsedItrId, parsedYear,
-                    file_path, updatedFilename, pdfPassword);
+            if (yearChanged) {
+                pdfPassword = PdfPasswordUtil.generatePassword();
+                PdfPasswordUtil.reEncryptPdf(tempFile.toFile(),
+                        oldRecord.getPdfPassword(),
+                        tempFile.toFile(),
+                        "OwnerSecretKey123",
+                        pdfPassword);
+            }
 
+            try (InputStream inputStream = Files.newInputStream(tempFile)) {
+                blobService.uploadFile(updatedFilename, inputStream, tempFile.toFile().length());
+            }
+
+            blobService.deleteFile(oldRecord.getFilename());
+            Files.deleteIfExists(tempFile);
+
+            boolean updated = upload.update(parsedItrId, parsedYear, "AzureBlob", updatedFilename, pdfPassword);
             if (!updated) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body("Failed to update ITR record with ID: " + parsedItrId);
