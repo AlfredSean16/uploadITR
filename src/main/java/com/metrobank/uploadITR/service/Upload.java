@@ -13,16 +13,16 @@ import java.util.List;
 @Service
 public class Upload {
     private final UploadRepository uploadRepository;
+
     @Autowired
     public Upload(UploadRepository uploadRepository){
         this.uploadRepository = uploadRepository;
     }
 
-    //Upload Backend Logic
-    public boolean upload (int user_id, int year, String file_path, String filename, String pdf_password){
-
+    // For uploading new ITR
+    public boolean upload(int user_id, int year, String file_path, String filename, String pdf_password) {
         try {
-            if(uploadRepository.existsByUserIdAndYear(user_id, year) > 0){
+            if (uploadRepository.existsByUserIdAndYear(user_id, year) > 0) {
                 return false;
             }
             UploadModel model = new UploadModel();
@@ -31,24 +31,23 @@ public class Upload {
             model.setFilePath(file_path);
             model.setFilename(filename);
             model.setPdfPassword(pdf_password);
+            model.setStatus("active");
             uploadRepository.save(model);
-        }
-        catch (Exception e){
+        } catch (Exception e) {
             return false;
         }
         return true;
     }
 
-    //For updating an itr record
+    // For updating an existing ITR
     public boolean update(int itr_id, int year, String file_path, String filename, String pdf_password) {
         try {
             UploadModel record = uploadRepository.findById((long) itr_id).orElse(null);
-            if (record == null) {
+            if (record == null || !"active".equals(record.getStatus())) {
                 return false;
             }
 
             int userId = record.getUserId();
-
             int count = uploadRepository.countByUserIdAndYearExcludingItr(userId, year, itr_id);
             if (count > 0) {
                 return false;
@@ -61,23 +60,20 @@ public class Upload {
         return true;
     }
 
-    //For removing an itr record
-    public boolean remove (int itr_id){
-
+    // Soft delete instead of nulling out fields
+    public boolean remove(int itr_id) {
         try {
             if (uploadRepository.existByItrId(itr_id) == 0) {
-                throw new ItrIdValidationException("This ITR record does not exist.");
+                throw new ItrIdValidationException("This ITR record does not exist or is already removed.");
             }
-            uploadRepository.deleteItrById(itr_id);
-        }
-        catch (Exception e){
+            uploadRepository.softDeleteItrById(itr_id);
+        } catch (Exception e) {
             return false;
         }
         return true;
     }
 
-    //for selecting all inside the itr records table
-    public List<UploadModel> uploadAll(){
-        return uploadRepository.streamAll();
+    public List<UploadModel> uploadAll() {
+        return uploadRepository.streamAllActive();
     }
 }

@@ -69,6 +69,12 @@ public class UploadController {
             int parsedUserId = Integer.parseInt(user_id);
             int parsedYear = Integer.parseInt(year);
 
+            int currentYear = LocalDateTime.now(ZoneId.of("UTC")).getYear();
+            if (parsedYear > currentYear) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("You cannot upload ITRs for future years.");
+            }
+
             if (uploadRepository.existByUserId(parsedUserId) == 0) {
                 throw new UserIdValidationException("This user does not exist.");
             }
@@ -87,18 +93,16 @@ public class UploadController {
             String timestampedFilename = String.format("%s_%s.pdf", filename,
                     dateTime.format(DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss")));
 
-            // Encrypt the PDF before uploading
             Path tempFile = Files.createTempFile("itr_", ".pdf");
             uploadFile.transferTo(tempFile.toFile());
 
             String pdfPassword = PdfPasswordUtil.generatePassword();
             PdfPasswordUtil.encryptPdf(tempFile.toFile(), "OwnerSecretKey123", pdfPassword);
 
-            // Upload to Azure Blob
             try (InputStream inputStream = Files.newInputStream(tempFile)) {
                 blobService.uploadFile(timestampedFilename, inputStream, tempFile.toFile().length());
             }
-            Files.deleteIfExists(tempFile); // clean up temp file
+            Files.deleteIfExists(tempFile);
 
             if (upload.upload(parsedUserId, parsedYear, "AzureBlob", timestampedFilename, pdfPassword)) {
                 String userEmail = uploadRepository.findEmailByUserId(parsedUserId);
@@ -139,11 +143,18 @@ public class UploadController {
             return ResponseEntity.badRequest().body("ITR ID and Year must be valid numbers.");
         }
 
+        int currentYear = LocalDateTime.now(ZoneId.of("UTC")).getYear();
+        if (parsedYear > currentYear) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body("You cannot upload ITRs for future years.");
+        }
+
         try {
             UploadModel oldRecord = uploadRepository.findById((long) parsedItrId).orElse(null);
-            if (oldRecord == null) {
+
+            if (oldRecord == null || !"active".equalsIgnoreCase(oldRecord.getStatus())) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body("This ITR record does not exist.");
+                        .body("This ITR record does not exist or is already removed.");
             }
 
             int duplicates = uploadRepository.countByUserIdAndYearExcludingItr(
@@ -217,34 +228,12 @@ public class UploadController {
             return ResponseEntity.badRequest().body("ITR ID must be a valid number.");
         }
 
-        try {
-            UploadModel record = uploadRepository.findById((long) parsedItrID).orElse(null);
-            if (record == null) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body("This ITR record does not exist.");
-            }
-
-            if (record.getYear() == null &&
-                    record.getFilePath() == null &&
-                    record.getFilename() == null &&
-                    record.getPdfPassword() == null) {
-
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(String.format("ITR number: %s is already removed.", parsedItrID));
-            }
-
-            record.setYear(null);
-            record.setFilePath(null);
-            record.setFilename(null);
-            record.setPdfPassword(null);
-
-            uploadRepository.save(record);
-
-            return ResponseEntity.ok(String.format("ITR number: %s is successfully removed", parsedItrID));
-
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Unexpected error while removing ITR record: " + e.getMessage());
+        boolean removed = upload.remove(parsedItrID);
+        if (removed) {
+            return ResponseEntity.ok(String.format("ITR number: %s is successfully marked as removed", parsedItrID));
+        } else {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body("ITR record not found or already removed.");
         }
     }
 }
