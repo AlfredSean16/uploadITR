@@ -60,7 +60,7 @@ public class Upload {
         return true;
     }
 
-    // Soft delete instead of nulling out fields
+    //removing itr record
     public boolean remove(int itr_id) {
         try {
             if (uploadRepository.existByItrId(itr_id) == 0) {
